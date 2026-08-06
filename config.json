@@ -1,0 +1,55 @@
+{
+  "buckets": [
+    {
+      "name": "核心仓",
+      "tag": "📈 核心仓",
+      "desc": "长期复利，获取全球经济增长",
+      "target": 75,
+      "assets": [
+        {
+          "name": "VWRA",
+          "target": 65
+        },
+        {
+          "name": "AVGS",
+          "target": 10
+        }
+      ],
+      "color": "199 89% 48%"
+    },
+    {
+      "name": "对冲仓",
+      "tag": "🛡 对冲仓",
+      "desc": "对冲法币风险、极端风险",
+      "target": 10,
+      "assets": [
+        {
+          "name": "IBIT",
+          "target": 5
+        },
+        {
+          "name": "GLDM",
+          "target": 5
+        }
+      ],
+      "color": "221 83% 53%"
+    },
+    {
+      "name": "认知仓",
+      "tag": "🧠 认知仓",
+      "desc": "验证认知，获取超额收益",
+      "target": 5,
+      "color": "262 83% 58%"
+    },
+    {
+      "name": "现金仓",
+      "tag": "💵 现金仓",
+      "desc": "流动性、等待机会",
+      "target": 10,
+      "color": "142 71% 45%",
+      "assetSubClass": [
+        "CASH"
+      ]
+    }
+  ]
+}

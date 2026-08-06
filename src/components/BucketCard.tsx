@@ -33,8 +33,12 @@ export function BucketCard({ bucket, totalValue }: BucketCardProps) {
     );
   }, [bucket.positions, totalValue]);
 
-  const positions =
-    bucket.positions.length > 0 ? bucket.positions : [];
+  const positions = bucket.positions;
+
+  // Drift between actual and target allocation (percentage points).
+  const targetPct = bucket.target; // 0..100
+  const actualPct = bucket.percentage * 100;
+  const drift = targetPct !== undefined ? actualPct - targetPct : undefined;
 
   return (
     <div
@@ -48,19 +52,48 @@ export function BucketCard({ bucket, totalValue }: BucketCardProps) {
             style={{ backgroundColor: bucketColor }}
           />
           <h3 className="text-base font-semibold">{bucket.label}</h3>
+          {bucket.desc && (
+            <span className="text-xs text-muted-foreground">
+              {bucket.desc}
+            </span>
+          )}
           <Badge variant="secondary" className="font-mono">
             {positions.length}
           </Badge>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold tabular-nums">
-            {fmtPct(bucket.percentage)}
+          <div className="flex items-baseline justify-end gap-2">
+            <span className="text-2xl font-bold tabular-nums">
+              {fmtPct(bucket.percentage)}
+            </span>
+            {targetPct !== undefined && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                / 目标 {targetPct.toFixed(2)}%
+              </span>
+            )}
           </div>
-          {bucketValue !== undefined && (
-            <div className="text-xs text-muted-foreground tabular-nums">
-              {fmtMoney(bucketValue)}
-            </div>
-          )}
+          <div className="flex items-center justify-end gap-2">
+            {bucketValue !== undefined && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {fmtMoney(bucketValue)}
+              </span>
+            )}
+            {drift !== undefined && (
+              <span
+                className={cn(
+                  'text-xs tabular-nums',
+                  Math.abs(drift) < 1
+                    ? 'text-muted-foreground'
+                    : drift > 0
+                      ? 'text-emerald-600'
+                      : 'text-red-600'
+                )}
+              >
+                {drift > 0 ? '+' : ''}
+                {drift.toFixed(2)}%
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -87,6 +120,7 @@ export function BucketCard({ bucket, totalValue }: BucketCardProps) {
                   key={posKey(p)}
                   position={p}
                   bucketPercentage={bucket.percentage}
+                  assetTarget={findAssetTarget(bucket, p)}
                 />
               ))}
             </TableBody>
@@ -99,10 +133,12 @@ export function BucketCard({ bucket, totalValue }: BucketCardProps) {
 
 function HoldingRow({
   position,
-  bucketPercentage
+  bucketPercentage,
+  assetTarget
 }: {
   position: PortfolioPosition;
   bucketPercentage: number;
+  assetTarget?: { target: number }; // target % within bucket (0..100)
 }) {
   const ofBucket =
     bucketPercentage > 0
@@ -110,11 +146,10 @@ function HoldingRow({
       : 0;
 
   // 涨跌：累计净盈亏金额（含汇率影响）= netPerformanceWithCurrencyEffect。
-  // 直接取 Ghostfolio 计算好的字段，来自 GET /portfolio/holding/:ds/:symbol。
   const change = position.netPerformanceWithCurrencyEffect ?? 0;
   const up = change >= 0;
 
-  // 盈亏（表现）：累计净收益率（含汇率影响）。
+  // 表现：累计净收益率（含汇率影响）。
   const pnlPct = position.netPerformancePercentWithCurrencyEffect ?? 0;
   const pnlUp = pnlPct >= 0;
 
@@ -150,14 +185,30 @@ function HoldingRow({
         {pnlUp ? '+' : ''}
         {(pnlPct * 100).toFixed(2)}%
       </TableCell>
-      <TableCell className="text-right tabular-nums text-muted-foreground">
+      <TableCell className="text-right tabular-nums">
         {fmtPct(ofBucket)}
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {fmtPct(position.allocationInPercentage ?? 0)}
+        {assetTarget && (
+          <span className="ml-1 text-[10px] text-muted-foreground/70">
+            /{assetTarget.target.toFixed(0)}%
+          </span>
+        )}
       </TableCell>
     </TableRow>
   );
+}
+
+/** Match an asset target to a position by symbol or assetProfile.name. */
+function findAssetTarget(
+  bucket: BucketAssignment,
+  pos: PortfolioPosition
+): { target: number } | undefined {
+  if (!bucket.assets) return undefined;
+  const sym = pos.assetProfile.symbol;
+  const name = pos.assetProfile.name;
+  return bucket.assets.find((a) => a.name === sym || a.name === name);
 }
 
 function posKey(p: PortfolioPosition): string {

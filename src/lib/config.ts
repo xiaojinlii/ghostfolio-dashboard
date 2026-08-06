@@ -1,96 +1,143 @@
-// Local configuration + persistence for the sidecar app.
-// The Security Token (used to log in) and bucket mapping live in localStorage
-// so the app stays a single static bundle with zero server state.
+// Sidecar configuration model.
 //
-// Auth model (mirrors the official web client):
-//   securityToken  --POST /auth/anonymous-->  authToken (JWT)
-// The JWT is attached as "Authorization: Bearer <jwt>" to every data call.
-// We persist the Security Token (long-lived) and keep the JWT only in
-// memory / sessionStorage so a page refresh re-derives it.
+// Two layers of config:
+//   1. config.json (persisted via the dev-server /sidecar/config endpoint):
+//      bucket definitions only. Read on startup, written from the Settings
+//      panel. This is the user-facing, shareable layout.
+//   2. Environment (GHOSTFOLIO_URL): the Ghostfolio base URL, injected at
+//      build/dev time. Kept out of config.json because it's an environment
+//      concern, not a portfolio layout concern. Empty = same-origin /api/v1.
+//   3. localStorage: the Security Token only (a credential — must not be
+//      committed to a config file).//
+// Note: "auto cash bucket" is NOT a persisted toggle. A bucket absorbs CASH
+// positions when its `assetSubClass` array contains 'CASH' (and no prior
+// bucket matched by tag). Synthetic cash positions have no activities, so
+// they can't be tagged — assetSubClass is how they're routed.
 
-export const BUCKET_IDS = ['core', 'hedge', 'thesis', 'cash'] as const;
-export type BucketId = (typeof BUCKET_IDS)[number];
+export type BucketId = string;
 
-export const BUCKET_LABELS: Record<BucketId, string> = {
-  core: '核心仓',
-  hedge: '对冲仓',
-  thesis: '认知仓',
-  cash: '现金仓'
-};
+/** A single asset target within a bucket (optional — if absent, the bucket
+ *  doesn't enforce per-asset targets). */
+export interface AssetTarget {
+  name: string; // display/symbol name, matched against holding assetProfile.name or symbol
+  target: number; // target allocation in percent (0..100) within the bucket
+}
 
-// Distinct color per bucket for the progress bars and accents.
-// Bare HSL triplet strings (no hsl() wrapper) — consumers wrap with hsl().
-export const BUCKET_COLORS: Record<BucketId, string> = {
-  core: '199 89% 48%', // sky blue — distinct from hedge's indigo blue
-  hedge: '221 83% 53%', // indigo blue
-  thesis: '262 83% 58%', // violet
-  cash: '142 71% 45%' // green
-};
+/** A bucket definition as stored in config.json. Array order = bucket
+ *  priority for mutual-exclusion assignment. */
+export interface BucketConfig {
+  /** Display name shown on the card header (e.g. "核心仓"). */
+  name: string;
+  /** Ghostfolio tag name to match against position.tags[] (e.g. "📈 核心仓"). */
+  tag: string;
+  /** Short description shown after the bucket name. */
+  desc?: string;
+  /** Target allocation of this bucket within the whole portfolio (percent 0..100). */
+  target?: number;
+  /** Per-asset targets within the bucket. Optional; if absent, no per-asset control. */
+  assets?: AssetTarget[];
+  /** hsl() triplet string (e.g. "199 89% 48%") for the bucket's accent color. */
+  color?: string;
+  /**
+   * Ghostfolio assetSubClass values this bucket absorbs (e.g. ['CASH']).
+   * Positions whose assetProfile.assetSubClass is in this list route here
+   * when no tag matched. Lets a bucket collect CASH/LIQUIDITY without a tag
+   * (synthetic cash positions have no activities, so they can't be tagged).
+   */
+  assetSubClass?: string[];
+}
 
+/** Shape of config.json on disk — bucket definitions only. */
 export interface SidecarConfig {
-  // Ghostfolio "Security Token" (User.accessToken). Used once to derive a JWT
-  // via POST /api/v1/auth/anonymous. Long-lived; persisted so refresh works.
-  securityToken: string;
-  // Base URL of the Ghostfolio instance, e.g. "http://192.168.1.5:3333" or
-  // "https://gf.example.com". Empty = same-origin relative path "/api/v1"
-  // (handled by the Vite proxy in dev, or a reverse proxy in prod).
-  ghostfolioUrl: string;
-  // Map each bucket to a Ghostfolio tag name. A bucket is "active" when its
-  // tagName is non-empty and resolves to a real tag id at runtime.
-  buckets: Record<BucketId, string>;
-  // Bucket priority for mutual exclusion when a position matches several
-  // buckets' tags. First match wins.
-  priority: BucketId[];
-  // When true, positions whose assetSubClass is CASH (or assetClass is
-  // LIQUIDITY) are auto-assigned to the cash bucket without needing a tag.
-  autoCashBucket: boolean;
+  /** Buckets in priority order. */
+  buckets: BucketConfig[];
 }
 
 export const DEFAULT_CONFIG: SidecarConfig = {
-  securityToken: '',
-  ghostfolioUrl: '',
-  buckets: {
-    core: '核心仓',
-    hedge: '对冲仓',
-    thesis: '认知仓',
-    cash: '现金仓'
-  },
-  priority: ['core', 'hedge', 'thesis', 'cash'],
-  autoCashBucket: true
+  buckets: [
+    {
+      name: '核心仓',
+      tag: '📈 核心仓',
+      desc: '长期复利，获取全球经济增长',
+      target: 75,
+      assets: [
+        { name: 'VWRA', target: 65 },
+        { name: 'AVGS', target: 10 }
+      ],
+      color: '199 89% 48%'
+    },
+    {
+      name: '对冲仓',
+      tag: '🛡 对冲仓',
+      desc: '对冲法币风险、极端风险',
+      target: 10,
+      assets: [
+        { name: 'IBIT', target: 5 },
+        { name: 'GLDM', target: 5 }
+      ],
+      color: '221 83% 53%'
+    },
+    {
+      name: '认知仓',
+      tag: '🧠 认知仓',
+      desc: '验证认知，获取超额收益',
+      target: 5,
+      color: '262 83% 58%'
+    },
+    {
+      name: '现金仓',
+      tag: '💵 现金仓',
+      desc: '流动性、等待机会',
+      target: 10,
+      assetSubClass: ['CASH'],
+      color: '142 71% 45%'
+    }
+  ]
 };
 
-const STORAGE_KEY = 'ghostfolio-sidecar-config';
+/**
+ * Ghostfolio base URL from the environment (GHOSTFOLIO_URL).
+ * Empty = same-origin "/api/v1" (Vite proxy in dev, reverse proxy in prod).
+ * Read once at module load — changing it requires a dev-server restart.
+ */
+export const GHOSTFOLIO_URL: string =
+  (import.meta.env.GHOSTFOLIO_URL as string | undefined)?.trim() ?? '';
 
-export function loadConfig(): SidecarConfig {
+// --- Security Token (credential, localStorage only) ------------------------
+
+const TOKEN_KEY = 'ghostfolio-sidecar-security-token';
+
+export function loadSecurityToken(): string {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_CONFIG;
-    const parsed = JSON.parse(raw) as Partial<SidecarConfig>;
-    return {
-      ...DEFAULT_CONFIG,
-      ...parsed,
-      buckets: { ...DEFAULT_CONFIG.buckets, ...(parsed.buckets ?? {}) },
-      priority: parsed.priority?.length ? parsed.priority : DEFAULT_CONFIG.priority
-    };
+    return localStorage.getItem(TOKEN_KEY) ?? '';
   } catch {
-    return DEFAULT_CONFIG;
+    return '';
   }
 }
 
-export function saveConfig(config: SidecarConfig) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+export function saveSecurityToken(token: string) {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // ignore
+  }
 }
 
-// --- JWT (authToken) session storage --------------------------------------
-// Kept in sessionStorage (cleared when the tab closes) rather than
-// localStorage: a JWT is short-lived and per-session. We re-derive it from
-// the Security Token on next visit.
+export function clearSecurityToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+}
 
-const TOKEN_KEY = 'ghostfolio-sidecar-auth-token';
+// --- JWT (authToken) session storage ----------------------------------------
+
+const AUTH_TOKEN_KEY = 'ghostfolio-sidecar-auth-token';
 
 export function loadAuthToken(): string | null {
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }
@@ -98,15 +145,15 @@ export function loadAuthToken(): string | null {
 
 export function saveAuthToken(token: string) {
   try {
-    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(AUTH_TOKEN_KEY, token);
   } catch {
-    // ignore quota / privacy errors
+    // ignore
   }
 }
 
 export function clearAuthToken() {
   try {
-    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(AUTH_TOKEN_KEY);
   } catch {
     // ignore
   }

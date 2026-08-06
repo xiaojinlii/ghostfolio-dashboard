@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError, loginAnonymous } from '@/lib/api';
 import {
+  DEFAULT_CONFIG,
+  GHOSTFOLIO_URL,
   clearAuthToken,
+  clearSecurityToken,
   loadAuthToken,
-  loadConfig,
+  loadSecurityToken,
   saveAuthToken,
-  saveConfig,
+  saveSecurityToken,
   type SidecarConfig
 } from '@/lib/config';
 import { collectTags } from '@/lib/grouping';
@@ -16,10 +19,16 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { SettingsPanel } from '@/components/SettingsPanel';
 
 export function App() {
-  const [config, setConfig] = useState<SidecarConfig>(() => loadConfig());
+  // config.json content — loaded from the sidecar dev backend on mount.
+  const [config, setConfig] = useState<SidecarConfig>(() => DEFAULT_CONFIG);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // JWT authToken: kept in sessionStorage, derived from the Security Token.
+  // Security Token (credential) + JWT — kept in browser storage, never in
+  // config.json.
+  const [securityToken, setSecurityToken] = useState<string>(() =>
+    loadSecurityToken()
+  );
   const [authToken, setAuthToken] = useState<string | null>(() =>
     loadAuthToken()
   );
@@ -29,10 +38,24 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Tags are derived from the holdings themselves (each position embeds its
-  // own tags) — never call GET /tags, which is ADMIN-only (readTags) and
-  // 403s for normal users.
   const tags = useMemo(() => collectTags(positions), [positions]);
+
+  // Ghostfolio base URL comes from the environment, not config.json.
+  const ghostfolioUrl = GHOSTFOLIO_URL;
+
+  // --- Load config.json on mount -------------------------------------------
+  useEffect(() => {
+    void (async () => {
+      try {
+        const cfg = await api.getConfig();
+        setConfig(cfg);
+      } catch {
+        // Use defaults; the settings panel can still create one.
+      } finally {
+        setConfigLoaded(true);
+      }
+    })();
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!authToken) return;
@@ -40,28 +63,20 @@ export function App() {
     setError(null);
     try {
       const [holdings, details] = await Promise.all([
-        api.getHoldings(authToken, config.ghostfolioUrl),
-        api.getPortfolioDetails(authToken, config.ghostfolioUrl)
+        api.getHoldings(authToken, ghostfolioUrl),
+        api.getPortfolioDetails(authToken, ghostfolioUrl)
       ]);
       const baseHoldings = holdings.holdings ?? [];
 
-      // The bulk /portfolio/holdings response omits some performance fields
-      // (netPerformanceWithCurrencyEffect / netPerformancePercentWithCurrencyEffect
-      // may be range-scoped and missing in the bulk list). Fetch each holding's
-      // detail in parallel to enrich 涨跌 / 表现. Failures (e.g. synthetic cash
-      // positions) just leave the bulk values as-is.
+      // Enrich each holding with detail (netPerformanceWithCurrencyEffect etc.).
+      // Failures here don't abort the dashboard — we just keep bulk values.
       const enriched = await Promise.all(
         baseHoldings.map(async (p) => {
           const ds = p.assetProfile.dataSource;
           const sym = p.assetProfile.symbol;
           if (!ds || !sym) return p;
           try {
-            const detail = await api.getHoldingDetail(
-              authToken,
-              config.ghostfolioUrl,
-              ds,
-              sym
-            );
+            const detail = await api.getHoldingDetail(authToken, ghostfolioUrl, ds, sym);
             return {
               ...p,
               netPerformance: detail.netPerformance ?? p.netPerformance,
@@ -74,7 +89,13 @@ export function App() {
                 detail.netPerformanceWithCurrencyEffect ??
                 p.netPerformanceWithCurrencyEffect
             };
-          } catch {
+          } catch (e) {
+            // Log per-holding enrichment failures so a single bad holding
+            // doesn't silently drop its detail data.
+            console.warn(
+              `[sidecar] getHoldingDetail failed for ${ds}:${sym}`,
+              e
+            );
             return p;
           }
         })
@@ -88,7 +109,6 @@ export function App() {
       if (e instanceof ApiError) {
         setError(e.message);
         if (e.status === 401) {
-          // JWT expired — back to login.
           clearAuthToken();
           setAuthToken(null);
         }
@@ -98,24 +118,23 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [authToken, config.ghostfolioUrl]);
+  }, [authToken, ghostfolioUrl]);
 
   useEffect(() => {
-    if (authToken) {
+    if (authToken && configLoaded) {
       void refresh();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authToken, config.ghostfolioUrl]);
+  }, [authToken, configLoaded]);
 
-  // Re-derive a JWT on first load if a Security Token is remembered but we
-  // have no session token yet (e.g. after a page refresh).
+  // Re-derive a JWT on first load if a Security Token is remembered.
   useEffect(() => {
-    if (!authToken && config.securityToken) {
+    if (!authToken && securityToken && configLoaded) {
       void (async () => {
         try {
           const { authToken: jwt } = await loginAnonymous(
-            config.ghostfolioUrl,
-            config.securityToken
+            ghostfolioUrl,
+            securityToken
           );
           saveAuthToken(jwt);
           setAuthToken(jwt);
@@ -125,35 +144,43 @@ export function App() {
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [configLoaded]);
 
-  const handleLogin = (jwt: string, securityToken: string) => {
+  const handleLogin = (jwt: string, token: string) => {
     saveAuthToken(jwt);
+    saveSecurityToken(token);
     setAuthToken(jwt);
-    // Remember the Security Token so refresh re-derives the JWT automatically.
-    const next = { ...config, securityToken };
-    setConfig(next);
-    saveConfig(next);
+    setSecurityToken(token);
   };
 
   const handleLogout = () => {
     clearAuthToken();
+    clearSecurityToken();
     setAuthToken(null);
+    setSecurityToken('');
     setPositions([]);
     setTotalValue(undefined);
   };
 
-  const handleConfigChange = (next: SidecarConfig) => {
-    setConfig(next);
-    saveConfig(next);
+  const handleConfigChange = async (next: SidecarConfig) => {
+    try {
+      const saved = await api.putConfig(next);
+      setConfig(saved);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setError(e.message);
+      } else {
+        setError('保存配置失败');
+      }
+    }
   };
 
-  // --- Login gate --------------------------------------------------------
+  // --- Login gate ----------------------------------------------------------
   if (!authToken) {
     return (
       <>
         <LoginScreen
-          ghostfolioUrl={config.ghostfolioUrl}
+          ghostfolioUrl={ghostfolioUrl}
           onLogin={handleLogin}
           onOpenSettings={() => setSettingsOpen(true)}
         />

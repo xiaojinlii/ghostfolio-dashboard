@@ -4,6 +4,7 @@ import type {
   PortfolioHoldingsResponse,
   Tag
 } from './types';
+import type { SidecarConfig } from './config';
 
 const DEFAULT_API_BASE = '/api/v1';
 
@@ -79,7 +80,15 @@ async function request<T>(
     throw new ApiError(401, '登录已过期，请重新登录。');
   }
   if (!res.ok) {
-    throw new ApiError(res.status, `请求失败 (${res.status})`);
+    // Surface the server's error body when available so a 500 isn't a mystery.
+    let detail = '';
+    try {
+      const body = await res.text();
+      detail = body ? `: ${body.slice(0, 300)}` : '';
+    } catch {
+      // ignore body read errors
+    }
+    throw new ApiError(res.status, `请求失败 (${res.status}) ${path}${detail}`);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -122,6 +131,28 @@ export const api = {
       ghostfolioUrl,
       { method: 'GET' }
     );
+  },
+
+  // --- Sidecar config.json (own backend, same-origin dev middleware) --------
+
+  async getConfig(): Promise<SidecarConfig> {
+    const res = await fetch('/sidecar/config', { method: 'GET' });
+    if (!res.ok) {
+      throw new ApiError(res.status, `读取配置失败 (${res.status})`);
+    }
+    return (await res.json()) as SidecarConfig;
+  },
+
+  async putConfig(config: SidecarConfig): Promise<SidecarConfig> {
+    const res = await fetch('/sidecar/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config, null, 2)
+    });
+    if (!res.ok) {
+      throw new ApiError(res.status, `保存配置失败 (${res.status})`);
+    }
+    return (await res.json()) as SidecarConfig;
   },
 
   createTag(authToken: string, ghostfolioUrl: string, name: string) {

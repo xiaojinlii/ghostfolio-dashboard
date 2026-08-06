@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { LogOut, Plus, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 
-import { assignBuckets, type BucketAssignment } from '@/lib/grouping';
-import type { PortfolioPosition, Tag } from '@/lib/types';
+import { assignBuckets } from '@/lib/grouping';
 import type { SidecarConfig } from '@/lib/config';
+import type { PortfolioPosition, Tag } from '@/lib/types';
 import { fmtMoney } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { BucketCard } from './BucketCard';
@@ -38,12 +38,13 @@ export function Dashboard({
 }: DashboardProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const buckets: BucketAssignment[] = useMemo(
+  const buckets = useMemo(
     () => assignBuckets(positions, config),
     [positions, config]
   );
 
-  const untracked = buckets.find((b) => b.id === 'untracked')?.percentage ?? 0;
+  const untracked = buckets.find((b) => b.index === -1)?.percentage ?? 0;
+  const trackedBuckets = buckets.filter((b) => b.index !== -1);
 
   return (
     <div className="min-h-screen bg-background">
@@ -97,31 +98,29 @@ export function Dashboard({
         {/* Overview bar */}
         <div className="mb-4">
           <div className="mb-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {buckets
-              .filter((b) => b.id !== 'untracked')
-              .map((b) => (
+            {trackedBuckets.map((b) => (
+              <span
+                key={b.index}
+                className="inline-flex items-center gap-1 tabular-nums"
+              >
                 <span
-                  key={b.id}
-                  className="inline-flex items-center gap-1 tabular-nums"
-                >
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: `hsl(${b.color})` }}
-                  />
-                  {b.label} {fmtPct(b.percentage)}
-                </span>
-              ))}
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: `hsl(${b.color})` }}
+                />
+                {b.label} {fmtPct(b.percentage)}
+              </span>
+            ))}
             <span className="inline-flex items-center gap-1 tabular-nums">
               <span className="inline-block h-2.5 w-2.5 rounded-full bg-muted-foreground/40" />
               未分类 {fmtPct(untracked)}
             </span>
           </div>
           <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
-            {buckets
-              .filter((b) => b.id !== 'untracked' && b.percentage > 0)
+            {trackedBuckets
+              .filter((b) => b.percentage > 0)
               .map((b) => (
                 <div
-                  key={b.id}
+                  key={b.index}
                   className="h-full"
                   style={{
                     width: `${Math.min(100, b.percentage * 100)}%`,
@@ -143,7 +142,11 @@ export function Dashboard({
         {/* Bucket grid */}
         <div className="grid grid-cols-1 gap-4">
           {buckets.map((b) => (
-            <BucketCard key={b.id} bucket={b} totalValue={totalValue} />
+            <BucketCard
+              key={b.index < 0 ? 'untracked' : b.index}
+              bucket={b}
+              totalValue={totalValue}
+            />
           ))}
         </div>
 

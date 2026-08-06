@@ -1,40 +1,26 @@
+import type { BucketConfig, SidecarConfig } from './config';
 import type { PortfolioPosition, Tag } from './types';
-import {
-  BUCKET_COLORS,
-  BUCKET_IDS,
-  BUCKET_LABELS,
-  type BucketId,
-  type SidecarConfig
-} from './config';
 
 export interface BucketAssignment {
-  id: BucketId | 'untracked';
-  label: string;
-  color: string; // hsl triplet string, e.g. "222 47% 11%"
+  /** Index into the config.buckets array (priority order). */
+  index: number;
+  config: BucketConfig;
+  label: string; // config.name
+  desc?: string; // config.desc
+  color: string; // config.color or default
+  target?: number; // bucket target in percent (0..100)
+  assets?: BucketConfig['assets'];
   positions: PortfolioPosition[];
   percentage: number; // sum of allocationInPercentage within bucket (0..1)
 }
 
+/** Whether a position is a Ghostfolio CASH/LIQUIDITY position.
+ *  Kept exported for callers that need to detect cash specifically; bucket
+ *  routing now uses BucketConfig.assetSubClass (see assignBuckets). */
 export function isCashPosition(pos: {
   assetProfile?: { assetSubClass?: string; assetClass?: string };
 }): boolean {
   return pos.assetProfile?.assetSubClass === 'CASH';
-}
-
-/**
- * Check whether a bucket's configured tag name is present among the given
- * tags. Used by the settings UI to show "已匹配 / 未匹配" — matching by name
- * against whatever tags the user passes in (typically collected from the
- * holdings themselves, avoiding the ADMIN-only GET /tags endpoint).
- */
-export function isBucketTagPresent(
-  config: SidecarConfig,
-  id: BucketId,
-  tags: Tag[]
-): boolean {
-  const name = config.buckets[id]?.trim();
-  if (!name) return false;
-  return tags.some((t) => t.name === name);
 }
 
 /**
@@ -56,13 +42,12 @@ export function collectTags(positions: PortfolioPosition[]): Tag[] {
  * Assign each position to exactly one bucket (mutual exclusion).
  *
  * Rules:
- *  - If autoCashBucket is enabled and the position is a CASH/LIQUIDITY
- *    position, the cash bucket wins regardless of tags. Cash positions are
- *    synthetic account balances with no activities, so you cannot tag them
- *    via PUT /holding/.../tags (it would 404).
- *  - Otherwise walk buckets in config.priority order; first bucket whose
- *    configured tag NAME appears on the position's own tags wins. Matching
- *    by name avoids any dependency on the ADMIN-only /tags endpoint.
+ *  - Buckets are walked in config.buckets array order (= priority).
+ *    First bucket whose `tag` name appears on the position's own tags wins.
+ *  - If no tag matched, a bucket whose `assetSubClass` array contains the
+ *    position's assetProfile.assetSubClass wins (priority order). This is how
+ *    CASH positions route to the cash bucket — synthetic cash positions have
+ *    no activities, so they can't be tagged.
  *  - Positions matching no bucket go to "untracked".
  *  - Bucket percentage = sum of allocationInPercentage of its positions.
  *    allocationInPercentage is already "holding value / portfolio total"
@@ -72,46 +57,60 @@ export function assignBuckets(
   positions: PortfolioPosition[],
   config: SidecarConfig
 ): BucketAssignment[] {
-  const buckets: BucketAssignment[] = [
-    ...BUCKET_IDS.map((id) => ({
-      id,
-      label: BUCKET_LABELS[id],
-      color: BUCKET_COLORS[id],
-      positions: [] as PortfolioPosition[],
-      percentage: 0
-    })),
-    {
-      id: 'untracked',
-      label: '未分类',
-      color: '215 16% 47%',
-      positions: [] as PortfolioPosition[],
-      percentage: 0
-    }
-  ];
+  const bucketConfigs = config.buckets ?? [];
 
-  const findBucket = (bid: BucketId) => buckets.find((b) => b.id === bid)!;
-  const untracked = buckets[buckets.length - 1]!;
+  const buckets: BucketAssignment[] = bucketConfigs.map((cfg, i) => ({
+    index: i,
+    config: cfg,
+    label: cfg.name,
+    desc: cfg.desc,
+    color: cfg.color ?? '215 16% 47%',
+    target: cfg.target,
+    assets: cfg.assets,
+    positions: [] as PortfolioPosition[],
+    percentage: 0
+  }));
+
+  const untracked: BucketAssignment = {
+    index: -1,
+    config: { name: '未分类', tag: '' },
+    label: '未分类',
+    desc: undefined,
+    color: '215 16% 47%',
+    target: undefined,
+    assets: undefined,
+    positions: [] as PortfolioPosition[],
+    percentage: 0
+  };
 
   for (const pos of positions) {
     let assigned: BucketAssignment | null = null;
 
-    if (config.autoCashBucket && isCashPosition(pos)) {
-      assigned = findBucket('cash');
+    // 1. Match by tag name against the position's own tags (priority order).
+    for (const b of buckets) {
+      const tagName = b.config.tag?.trim();
+      if (tagName && pos.tags?.some((t) => t.name === tagName)) {
+        assigned = b;
+        break;
+      }
     }
 
+    // 2. Match by assetSubClass when no tag bucket claimed it (priority order).
+    //    CASH positions (and any synthetic, untaggable position) route here.
     if (!assigned) {
-      for (const bid of config.priority) {
-        const tagName = config.buckets[bid]?.trim();
-        if (
-          tagName &&
-          pos.tags?.some((t) => t.name === tagName)
-        ) {
-          assigned = findBucket(bid);
-          break;
+      const sub = pos.assetProfile?.assetSubClass;
+      if (sub) {
+        for (const b of buckets) {
+          const subs = b.config.assetSubClass;
+          if (subs && subs.includes(sub)) {
+            assigned = b;
+            break;
+          }
         }
       }
     }
 
+    // 3. Otherwise untracked.
     if (!assigned) {
       assigned = untracked;
     }
@@ -121,17 +120,23 @@ export function assignBuckets(
   }
 
   // Sort each bucket's positions by allocation descending.
-  for (const b of buckets) {
+  for (const b of [...buckets, untracked]) {
     b.positions.sort(
       (a, c) => (c.allocationInPercentage ?? 0) - (a.allocationInPercentage ?? 0)
     );
   }
 
-  // Buckets in config.priority order, then untracked last.
-  const ordered: BucketAssignment[] = [
-    ...config.priority.map((bid) => findBucket(bid)),
-    untracked
-  ];
+  // Buckets in array (priority) order, then untracked last.
+  return [...buckets, untracked];
+}
 
-  return ordered;
+/** Check whether a bucket's configured tag name is present among the given
+ *  tags. Used by the settings UI to show "已匹配 / 未匹配". */
+export function isBucketTagPresent(
+  bucket: { tag?: string },
+  tags: Tag[]
+): boolean {
+  const name = bucket.tag?.trim();
+  if (!name) return false;
+  return tags.some((t) => t.name === name);
 }
