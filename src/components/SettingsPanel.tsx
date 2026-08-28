@@ -5,7 +5,8 @@ import {
   DEFAULT_CONFIG,
   type AssetTarget,
   type BucketConfig,
-  type SidecarConfig
+  type SidecarConfig,
+  type ThresholdOverride
 } from '@/lib/config';
 import { isBucketTagPresent } from '@/lib/grouping';
 import type { Tag } from '@/lib/types';
@@ -56,6 +57,29 @@ function parseSubClasses(input: string): string[] {
 /** Inverse of parseSubClasses for rendering in the text input. */
 function joinSubClasses(list?: string[]): string {
   return (list ?? []).join(', ');
+}
+
+/** Empty string → undefined (use 5/25 default); a number → that number.
+ *  Used by the threshold inputs so "blank" means "derive from the rule". */
+function numOrUndef(v: string): number | undefined {
+  const t = v.trim();
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** undefined → '' (blank input); number → its string. Inverse of numOrUndef. */
+function undefOrStr(n: number | undefined): string {
+  return n === undefined ? '' : String(n);
+}
+
+/** Update a subset of ThresholdOverride fields on either a bucket or an asset.
+ *  Returns a new object with the patch merged onto the existing overrides. */
+function patchThreshold<T extends ThresholdOverride>(
+  base: T,
+  patch: Partial<ThresholdOverride>
+): T {
+  return { ...base, ...patch };
 }
 
 interface SettingsPanelProps {
@@ -339,6 +363,23 @@ export function SettingsPanel({
                     </div>
                   </div>
 
+                  {/* 大类阈值 (Layer 2). 留空 = 5/25 默认。 */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      大类阈值（Layer 2）
+                      <span className="ml-1 text-muted-foreground/70">
+                        留空 = 5/25 默认；单位为占组合 %
+                      </span>
+                    </Label>
+                    <ThresholdEditor
+                      target={bucket.target}
+                      override={bucket}
+                      onPatch={(patch) =>
+                        updateBucket(i, patchThreshold(bucket, patch))
+                      }
+                    />
+                  </div>
+
                   {/* assets */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -355,34 +396,48 @@ export function SettingsPanel({
                       </Button>
                     </div>
                     {bucket.assets?.map((asset, ai) => (
-                      <div key={ai} className="flex items-center gap-2">
-                        <Input
-                          value={asset.name}
-                          onChange={(e) =>
-                            updateAsset(i, ai, { name: e.target.value })
+                      <div
+                        key={ai}
+                        className="space-y-2 rounded-md border p-2.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={asset.name}
+                            onChange={(e) =>
+                              updateAsset(i, ai, { name: e.target.value })
+                            }
+                            placeholder="名称/symbol"
+                            className="flex-1"
+                          />
+                          <Input
+                            type="number"
+                            value={asset.target}
+                            onChange={(e) =>
+                              updateAsset(i, ai, {
+                                target: Number(e.target.value)
+                              })
+                            }
+                            placeholder="目标%"
+                            className="w-24"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            onClick={() => removeAsset(i, ai)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        {/* 单资产阈值 (Layer 1). 留空 = 5/25 默认。 */}
+                        <ThresholdEditor
+                          target={asset.target}
+                          override={asset}
+                          compact
+                          onPatch={(patch) =>
+                            updateAsset(i, ai, patchThreshold(asset, patch))
                           }
-                          placeholder="名称/symbol"
-                          className="flex-1"
                         />
-                        <Input
-                          type="number"
-                          value={asset.target}
-                          onChange={(e) =>
-                            updateAsset(i, ai, {
-                              target: Number(e.target.value)
-                            })
-                          }
-                          placeholder="目标%"
-                          className="w-24"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0"
-                          onClick={() => removeAsset(i, ai)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
                       </div>
                     ))}
                   </div>
@@ -420,3 +475,72 @@ export function SettingsPanel({
 
 // Re-export so SettingsPanel callers can fall back to a default config object.
 export { DEFAULT_CONFIG };
+
+interface ThresholdEditorProps {
+  /** Current target percent (0..100). Used for the 5/25 hint, not for editing. */
+  target?: number;
+  /** The override object being edited (bucket or asset). */
+  override: ThresholdOverride;
+  /** Compact mode: smaller inputs, no per-field label. */
+  compact?: boolean;
+  onPatch: (patch: Partial<ThresholdOverride>) => void;
+}
+
+/** Four-input editor for toleranceLower/Upper + eventLower/Upper.
+ *  Blank = derive from the 5/25 default (shown as placeholder). */
+function ThresholdEditor({
+  target,
+  override,
+  compact,
+  onPatch
+}: ThresholdEditorProps) {
+  // 5/25 default values for placeholders, so the user sees what "blank" means.
+  const tol =
+    target !== undefined
+      ? Math.min(5, target * 0.25)
+      : undefined;
+  const defLower = tol !== undefined ? Math.max(0, target! - tol) : undefined;
+  const defUpper = tol !== undefined ? target! + tol : undefined;
+  const defEvtLower =
+    tol !== undefined ? target! - tol * 0.8 : undefined;
+  const defEvtUpper =
+    tol !== undefined ? target! + tol * 1.2 : undefined;
+
+  const ph = (v?: number) => (v === undefined ? '5/25' : v.toFixed(2));
+
+  const fields: {
+    key: keyof ThresholdOverride;
+    label: string;
+    def: number | undefined;
+  }[] = [
+    { key: 'toleranceLower', label: '容忍下限', def: defLower },
+    { key: 'toleranceUpper', label: '容忍上限', def: defUpper },
+    { key: 'eventLower', label: '事件下线', def: defEvtLower },
+    { key: 'eventUpper', label: '事件上线', def: defEvtUpper }
+  ];
+
+  return (
+    <div className={cn('grid gap-1.5', compact ? 'grid-cols-4' : 'grid-cols-2')}>
+      {fields.map((f) => (
+        <div key={f.key} className="space-y-0.5">
+          {!compact && (
+            <Label className="text-[10px] text-muted-foreground">
+              {f.label}
+            </Label>
+          )}
+          <Input
+            type="number"
+            value={undefOrStr(override[f.key] as number | undefined)}
+            onChange={(e) =>
+              onPatch({ [f.key]: numOrUndef(e.target.value) })
+            }
+            placeholder={ph(f.def)}
+            className={cn(compact ? 'h-7 text-xs' : 'h-8 text-xs')}
+            step="0.25"
+            title={compact ? f.label : undefined}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}

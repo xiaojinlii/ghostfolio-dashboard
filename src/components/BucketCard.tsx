@@ -45,10 +45,10 @@ export function BucketCard({ bucket, totalValue }: BucketCardProps) {
       className="flex flex-col rounded-xl border bg-card text-card-foreground shadow"
       style={{ borderTop: `3px solid ${bucketColor}` }}
     >
-      <div className="flex items-baseline justify-between p-4 pb-2">
-        <div className="flex items-center gap-2">
+      <div className="flex items-baseline justify-between gap-3 p-4 pb-2">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <span
-            className="inline-block h-3 w-3 rounded-full"
+            className="inline-block h-2.5 w-2.5 translate-y-[-1px] rounded-full"
             style={{ backgroundColor: bucketColor }}
           />
           <h3 className="text-base font-semibold">{bucket.label}</h3>
@@ -61,39 +61,44 @@ export function BucketCard({ bucket, totalValue }: BucketCardProps) {
             {positions.length}
           </Badge>
         </div>
-        <div className="text-right">
-          <div className="flex items-baseline justify-end gap-2">
-            <span className="text-2xl font-bold tabular-nums">
-              {fmtPct(bucket.percentage)}
+
+        {/* KPI 单行：当前 (最大) / 目标 (次级) / 偏离 (状态色) / 金额 (辅助) */}
+        <div className="flex items-baseline justify-end gap-2 whitespace-nowrap">
+          {/* 当前比例 — 最大字体，视觉焦点 */}
+          <span className="text-2xl font-bold tabular-nums leading-none">
+            {fmtPct(bucket.percentage)}
+          </span>
+
+          {/* 目标比例 — 次级字体 */}
+          {targetPct !== undefined && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              / 目标 {targetPct.toFixed(2)}%
             </span>
-            {targetPct !== undefined && (
-              <span className="text-xs text-muted-foreground tabular-nums">
-                / 目标 {targetPct.toFixed(2)}%
-              </span>
-            )}
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            {bucketValue !== undefined && (
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {fmtMoney(bucketValue)}
-              </span>
-            )}
-            {drift !== undefined && (
-              <span
-                className={cn(
-                  'text-xs tabular-nums',
-                  Math.abs(drift) < 1
-                    ? 'text-muted-foreground'
-                    : drift > 0
-                      ? 'text-emerald-600'
-                      : 'text-red-600'
-                )}
-              >
-                {drift > 0 ? '+' : ''}
-                {drift.toFixed(2)}%
-              </span>
-            )}
-          </div>
+          )}
+
+          {/* 偏离 — 状态颜色 */}
+          {drift !== undefined && (
+            <span
+              className={cn(
+                'text-xs font-semibold tabular-nums',
+                Math.abs(drift) < 1
+                  ? 'text-muted-foreground'
+                  : drift > 0
+                    ? 'text-emerald-600'
+                    : 'text-red-600'
+              )}
+            >
+              {drift > 0 ? '+' : ''}
+              {drift.toFixed(2)}%
+            </span>
+          )}
+
+          {/* 总金额 — 辅助信息 */}
+          {bucketValue !== undefined && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {fmtMoney(bucketValue)}
+            </span>
+          )}
         </div>
       </div>
 

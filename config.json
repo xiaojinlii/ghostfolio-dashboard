@@ -4,15 +4,25 @@
       "name": "核心仓",
       "tag": "📈 核心仓",
       "desc": "长期复利，获取全球经济增长",
-      "target": 75,
+      "target": 80,
+      "toleranceLower": 75,
+      "toleranceUpper": 85,
       "assets": [
         {
           "name": "VWRA",
-          "target": 65
+          "target": 70,
+          "toleranceLower": 65,
+          "toleranceUpper": 75,
+          "eventLower": 52,
+          "eventUpper": 90
         },
         {
           "name": "AVGS",
-          "target": 10
+          "target": 10,
+          "toleranceLower": 7.5,
+          "toleranceUpper": 12.5,
+          "eventLower": 6,
+          "eventUpper": 15
         }
       ],
       "color": "199 89% 48%"
@@ -22,14 +32,26 @@
       "tag": "🛡 对冲仓",
       "desc": "对冲法币风险、极端风险",
       "target": 10,
+      "toleranceLower": 7.5,
+      "toleranceUpper": 12.5,
+      "eventLower": 6,
+      "eventUpper": 15,
       "assets": [
         {
-          "name": "IBIT",
-          "target": 5
+          "name": "GLDM",
+          "target": 5,
+          "toleranceLower": 3.75,
+          "toleranceUpper": 6.25,
+          "eventLower": 3,
+          "eventUpper": 7.5
         },
         {
-          "name": "GLDM",
-          "target": 5
+          "name": "IBIT",
+          "target": 5,
+          "toleranceLower": 2.5,
+          "toleranceUpper": 7.5,
+          "eventLower": 2,
+          "eventUpper": 9
         }
       ],
       "color": "221 83% 53%"
@@ -39,17 +61,24 @@
       "tag": "🧠 认知仓",
       "desc": "验证认知，获取超额收益",
       "target": 5,
+      "toleranceLower": 0,
+      "toleranceUpper": 7.5,
+      "eventUpper": 9,
       "color": "262 83% 58%"
     },
     {
       "name": "现金仓",
       "tag": "💵 现金仓",
       "desc": "流动性、等待机会",
-      "target": 10,
-      "color": "142 71% 45%",
+      "target": 5,
+      "toleranceLower": 3.75,
+      "toleranceUpper": 6.25,
+      "eventLower": 3,
+      "eventUpper": 7.5,
       "assetSubClass": [
         "CASH"
-      ]
+      ],
+      "color": "142 71% 45%"
     }
   ]
 }

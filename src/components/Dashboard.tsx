@@ -7,6 +7,7 @@ import type { PortfolioPosition, Tag } from '@/lib/types';
 import { fmtMoney } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { BucketCard } from './BucketCard';
+import { RebalanceCard } from './RebalanceCard';
 import { SettingsPanel } from './SettingsPanel';
 
 interface DashboardProps {
@@ -137,6 +138,12 @@ export function Dashboard({
               />
             )}
           </div>
+        </div>
+
+        {/* Rebalance suggestions — sits between the overview bar and the
+            bucket cards so the user sees "what to do" before the detail. */}
+        <div className="mb-4">
+          <RebalanceCard buckets={buckets} totalValue={totalValue} />
         </div>
 
         {/* Bucket grid */}
