@@ -1,0 +1,11 @@
+services:
+  ghostfolio-dashboard:
+    image: ghcr.io/xiaojinlii/ghostfolio-dashboard:latest
+    container_name: ghostfolio-dashboard
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      GHOSTFOLIO_URL: https://ghostfolio.xiaojinli.xyz
+    volumes:
+      - ./config.json:/app/config.json
