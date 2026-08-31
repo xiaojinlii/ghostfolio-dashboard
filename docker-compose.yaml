@@ -6,6 +6,6 @@ services:
     ports:
       - "5173:5173"
     environment:
-      GHOSTFOLIO_URL: https://ghostfolio.xiaojinli.xyz
+      GHOSTFOLIO_URL: http://ghostfolio:3333
     volumes:
       - ./config.json:/app/config.json
