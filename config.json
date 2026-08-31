@@ -4,17 +4,17 @@
       "name": "核心仓",
       "tag": "📈 核心仓",
       "desc": "长期复利，获取全球经济增长",
-      "target": 80,
-      "toleranceLower": 75,
-      "toleranceUpper": 85,
+      "target": 75,
+      "toleranceLower": 70,
+      "toleranceUpper": 80,
       "assets": [
         {
           "name": "VWRA",
-          "target": 70,
-          "toleranceLower": 65,
-          "toleranceUpper": 75,
-          "eventLower": 52,
-          "eventUpper": 90
+          "target": 65,
+          "toleranceLower": 60,
+          "toleranceUpper": 70,
+          "eventLower": 48,
+          "eventUpper": 84
         },
         {
           "name": "AVGS",
@@ -60,10 +60,10 @@
       "name": "认知仓",
       "tag": "🧠 认知仓",
       "desc": "验证认知，获取超额收益",
-      "target": 5,
+      "target": 10,
       "toleranceLower": 0,
-      "toleranceUpper": 7.5,
-      "eventUpper": 9,
+      "toleranceUpper": 12.5,
+      "eventUpper": 15,
       "color": "262 83% 58%"
     },
     {
