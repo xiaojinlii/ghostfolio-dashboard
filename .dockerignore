@@ -1,0 +1,13 @@
+# Build context exclusions — keep the image lean and the build cache fast.
+node_modules
+dist
+.git
+.gitignore
+.vscode
+.idea
+*.log
+npm-debug.log*
+.DS_Store
+Dockerfile
+.dockerignore
+README.md

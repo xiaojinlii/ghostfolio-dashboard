@@ -55,7 +55,16 @@ export async function loginAnonymous(
     throw new ApiError(403, 'Security Token 不正确。');
   }
   if (!res.ok) {
-    throw new ApiError(res.status, `登录失败 (${res.status})`);
+    // Surface the server's error body so a 502 (e.g. upstream unreachable)
+    // isn't a mystery — server.mjs puts the real cause in `detail`.
+    let detail = '';
+    try {
+      const body = await res.text();
+      detail = body ? `: ${body.slice(0, 300)}` : '';
+    } catch {
+      // ignore body read errors
+    }
+    throw new ApiError(res.status, `登录失败 (${res.status})${detail}`);
   }
   return (await res.json()) as OAuthResponse;
 }
