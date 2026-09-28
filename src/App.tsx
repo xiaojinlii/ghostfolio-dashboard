@@ -66,7 +66,9 @@ export function App() {
         api.getHoldings(authToken, ghostfolioUrl),
         api.getPortfolioDetails(authToken, ghostfolioUrl)
       ]);
-      const baseHoldings = holdings.holdings ?? [];
+      const baseHoldings = (holdings.holdings ?? []).filter(
+        (position) => (position.valueInBaseCurrency ?? 0) > 0
+      );
 
       // Enrich each holding with detail (netPerformanceWithCurrencyEffect etc.).
       // Failures here don't abort the dashboard — we just keep bulk values.
